@@ -66,6 +66,8 @@ footer{text-align:center;font-size:11px;color:#9fb0cf;padding:16px}
     <input id="t" placeholder="Paste the token" autocomplete="off">
     <button id="saveBtn" class="btn gold">SAVE AND MAKE VOLUNTEER LINK</button>
     <div id="share"></div>
+    <button id="copyBtn" class="btn gold" style="display:none">📋 COPY LINK</button>
+    <button id="openBtn" class="btn ghost" style="display:none">Open the scanner on this device</button>
   </section>
 </main>
 
@@ -216,10 +218,30 @@ footer{text-align:center;font-size:11px;color:#9fb0cf;padding:16px}
     try { localStorage.setItem(KEY, JSON.stringify(c)); } catch (e) {}
     var box = $("share");
     box.style.display = "block";
+    box.style.whiteSpace = "pre-wrap";
     box.textContent = "Volunteer link (send only to your scanning team):\n\n" + link;
-    if (navigator.clipboard) navigator.clipboard.writeText(link).then(function () { alert("Volunteer link copied."); }, function () {});
-    setTimeout(function () { show("scanner"); }, 400);
+    $("copyBtn").style.display = "block";
+    $("openBtn").style.display = "block";
+    $("copyBtn").onclick = function () { copyText(link); };
+    $("openBtn").onclick = function () { show("scanner"); };
+    copyText(link);
   };
+
+  // Copies text. Falls back to selecting the text if the clipboard is not allowed.
+  function copyText(text) {
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+      var done = false;
+      try { done = document.execCommand("copy"); } catch (e) {}
+      ta.remove();
+      $("copyBtn").textContent = done ? "✓ COPIED" : "Select the link above and copy it";
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { $("copyBtn").textContent = "✓ COPIED"; }, fallback);
+    } else { fallback(); }
+  }
 
   $("resetBtn").onclick = function () {
     if (!confirm("Change the scanner settings on this phone?")) return;
@@ -230,7 +252,10 @@ footer{text-align:center;font-size:11px;color:#9fb0cf;padding:16px}
   $("startBtn").onclick = startScanner;
 
   readConfig();
-  show(validConfig(cfg) ? "scanner" : "setup");
+  // Admin can always reopen the setup screen with ?setup at the end of the address.
+  var wantSetup = /[?&]setup\b/.test(location.search);
+  if (cfg) { $("u").value = cfg.u || ""; $("t").value = cfg.t || ""; }
+  show(validConfig(cfg) && !wantSetup ? "scanner" : "setup");
 })();
 </script>
 </body>
