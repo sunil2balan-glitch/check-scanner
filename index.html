@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>CHECK ALLIANCE 2027 · Entry Scanner</title>
+<style>
+:root{--navy:#0b1f45;--navy2:#132a57;--gold:#c9a227;--goldl:#f3d98b;--ok:#13804b;--bad:#b42318}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--navy);color:#fff;font-family:Arial,Helvetica,sans-serif}
+header{padding:14px 16px 10px;text-align:center;border-bottom:3px solid var(--gold)}
+header .t{font-weight:800;font-size:18px;letter-spacing:1px}
+header .s{font-size:11px;color:var(--goldl);letter-spacing:3px;margin-top:3px}
+main{max-width:520px;margin:0 auto;padding:14px}
+#reader{width:100%;border-radius:14px;overflow:hidden;background:#000;min-height:260px}
+#reader video{border-radius:14px}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:15px;font-weight:800;font-size:16px;cursor:pointer;margin-top:12px}
+.gold{background:linear-gradient(100deg,#d8b35d,#f0d58e);color:#142440}
+.ghost{background:transparent;color:#fff;border:1px solid #3a5585}
+.status{margin-top:12px;padding:12px 14px;border-radius:12px;background:var(--navy2);font-size:14px;line-height:1.45;text-align:center}
+.stats{display:flex;gap:10px;margin-top:12px}
+.stats div{flex:1;background:var(--navy2);border-radius:12px;padding:10px;text-align:center}
+.stats b{display:block;font-size:22px;color:var(--goldl)}
+.stats span{font-size:11px;color:#c9d3e6;letter-spacing:1px}
+#result{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:24px;text-align:center;z-index:9}
+#result.ok{display:flex;background:var(--ok)}
+#result.bad{display:flex;background:var(--bad)}
+#result.wait{display:flex;background:rgba(11,31,69,.94)}
+#result .icon{font-size:84px;line-height:1}
+#result .big{font-size:28px;font-weight:800;margin-top:12px;word-break:break-word}
+#result .mid{font-size:18px;margin-top:8px;opacity:.95;word-break:break-word}
+#result .small{font-size:14px;margin-top:14px;opacity:.85}
+#setup{display:none}
+#setup label{display:block;font-size:13px;font-weight:700;margin:14px 0 6px;color:var(--goldl)}
+#setup input{width:100%;padding:12px;border-radius:10px;border:1px solid #3a5585;background:#fff;color:#111;font-size:14px}
+#share{display:none;margin-top:12px;word-break:break-all;font-size:12px;background:#fff;color:#111;padding:10px;border-radius:10px}
+footer{text-align:center;font-size:11px;color:#9fb0cf;padding:16px}
+</style>
+</head>
+<body>
+<header>
+  <div class="t">CHECK ALLIANCE 2027</div>
+  <div class="s">ENTRY SCANNER</div>
+</header>
+
+<main>
+  <!-- Scanner screen -->
+  <section id="scanner">
+    <div id="reader"></div>
+    <button id="startBtn" class="btn gold">📷 START SCANNING</button>
+    <div id="status" class="status">Press START SCANNING and allow camera access. Use the rear camera.</div>
+    <div class="stats">
+      <div><b id="okCount">0</b><span>CHECKED IN</span></div>
+      <div><b id="badCount">0</b><span>REJECTED</span></div>
+    </div>
+    <button id="resetBtn" class="btn ghost" style="font-size:13px;padding:10px">Change scanner settings</button>
+  </section>
+
+  <!-- One-time setup screen (admin only) -->
+  <section id="setup">
+    <div class="status">Admin setup. Enter the details once. Then send the volunteer link to your scanning team.</div>
+    <label for="u">Web app URL (ends with /exec)</label>
+    <input id="u" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off">
+    <label for="t">Scanner token (PT_MOBILE_SCANNER_TOKEN)</label>
+    <input id="t" placeholder="Paste the token" autocomplete="off">
+    <button id="saveBtn" class="btn gold">SAVE AND MAKE VOLUNTEER LINK</button>
+    <div id="share"></div>
+  </section>
+</main>
+
+<div id="result"><div>
+  <div class="icon" id="rIcon"></div>
+  <div class="big" id="rBig"></div>
+  <div class="mid" id="rMid"></div>
+  <div class="small" id="rSmall"></div>
+</div></div>
+
+<footer>Shows only the person you scan. No participant list is stored on this device.</footer>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  var KEY = "checkScannerCfg";
+  var $ = function (id) { return document.getElementById(id); };
+  var cfg = null, qr = null, busy = false, lastText = "", lastAt = 0, okN = 0, badN = 0;
+
+  // 1. Read settings from the link (#u=...&t=...), then hide them from the address bar.
+  function readConfig() {
+    var h = new URLSearchParams(location.hash.slice(1));
+    if (h.get("u") && h.get("t")) {
+      cfg = { u: h.get("u"), t: h.get("t") };
+      try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) {}
+      history.replaceState(null, "", location.pathname + location.search);
+      return;
+    }
+    try { cfg = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { cfg = null; }
+  }
+
+  function validConfig(c) {
+    return c && /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(c.u) && String(c.t).length >= 20;
+  }
+
+  function show(section) {
+    $("scanner").style.display = section === "scanner" ? "block" : "none";
+    $("setup").style.display = section === "setup" ? "block" : "none";
+  }
+
+  function setStatus(msg) { $("status").textContent = msg; }
+
+  // 2. Call the Apps Script mobile scan API with JSONP (works across domains).
+  function callApi(data) {
+    return new Promise(function (resolve, reject) {
+      var cb = "chk_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+      var s = document.createElement("script");
+      var timer = setTimeout(function () { cleanup(); reject(new Error("No response. Check the internet connection and try again.")); }, 25000);
+      function cleanup() { clearTimeout(timer); try { delete window[cb]; } catch (e) { window[cb] = undefined; } s.remove(); }
+      window[cb] = function (r) { cleanup(); resolve(r); };
+      s.onerror = function () { cleanup(); reject(new Error("Network error. Check the internet connection.")); };
+      s.src = cfg.u + "?api=mobileScan&token=" + encodeURIComponent(cfg.t) +
+              "&data=" + encodeURIComponent(data) + "&callback=" + cb;
+      document.body.appendChild(s);
+    });
+  }
+
+  function overlay(kind, icon, big, mid, small) {
+    var r = $("result");
+    r.className = kind;
+    $("rIcon").textContent = icon;
+    $("rBig").textContent = big || "";
+    $("rMid").textContent = mid || "";
+    $("rSmall").textContent = small || "";
+  }
+
+  function hideOverlay() { $("result").className = ""; }
+
+  function buzz(pattern) { try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {} }
+
+  function resume(delay) {
+    setTimeout(function () {
+      hideOverlay();
+      busy = false;
+      try { if (qr && qr.getState && qr.getState() === 3) qr.resume(); } catch (e) {}
+      setStatus("Ready. Point the camera at the next QR code.");
+    }, delay);
+  }
+
+  // 3. A QR code was read.
+  function onScan(text) {
+    var now = Date.now();
+    if (busy) return;
+    if (text === lastText && now - lastAt < 6000) return;   // same pass held in front of the camera
+    lastText = text; lastAt = now; busy = true;
+    try { qr.pause(true); } catch (e) {}
+
+    if (String(text).indexOf("CHECK-ALLIANCE-2027|") !== 0) {
+      badN++; $("badCount").textContent = badN;
+      buzz([120, 80, 120]);
+      overlay("bad", "✕", "NOT A CHECK PASS", "This QR code is not a CHECK ALLIANCE 2027 pass.", "");
+      resume(3000);
+      return;
+    }
+
+    overlay("wait", "⏳", "Checking…", "", "");
+    callApi(text).then(function (r) {
+      if (r && r.ok) {
+        okN++; $("okCount").textContent = okN;
+        buzz(200);
+        overlay("ok", "✓", r.data.name, r.data.organisation || "", r.data.id + " · " + r.data.time);
+        resume(2500);
+      } else {
+        badN++; $("badCount").textContent = badN;
+        buzz([120, 80, 120]);
+        var msg = (r && r.error) || "Check-in failed.";
+        var title = /already checked in/i.test(msg) ? "ALREADY CHECKED IN"
+                  : /not approved/i.test(msg) ? "NOT APPROVED"
+                  : /not found|mismatch|invalid qr/i.test(msg) ? "INVALID PASS"
+                  : /scanner token/i.test(msg) ? "SCANNER NOT AUTHORISED"
+                  : "ENTRY NOT ALLOWED";
+        overlay("bad", "✕", title, msg, "Send the visitor to the help desk.");
+        resume(3500);
+      }
+    }).catch(function (err) {
+      buzz([300]);
+      overlay("bad", "!", "NO CONNECTION", err.message, "Scan the pass again.");
+      lastText = "";            // allow an immediate retry of the same pass
+      resume(3500);
+    });
+  }
+
+  // 4. Camera control.
+  function startScanner() {
+    if (typeof Html5Qrcode === "undefined") { setStatus("The scanner library did not load. Check the internet and reload the page."); return; }
+    $("startBtn").disabled = true;
+    setStatus("Asking for camera access…");
+    qr = qr || new Html5Qrcode("reader");
+    qr.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 1.0 }, onScan, function () {})
+      .then(function () {
+        $("startBtn").style.display = "none";
+        setStatus("Ready. Point the camera at the QR code on the VIP pass.");
+      })
+      .catch(function (e) {
+        $("startBtn").disabled = false;
+        setStatus("Cannot open the camera: " + (e && e.message ? e.message : e) +
+                  ". Allow camera access for this site in the browser settings, then press START again.");
+      });
+  }
+
+  // 5. Admin setup: make the volunteer link.
+  $("saveBtn").onclick = function () {
+    var c = { u: $("u").value.trim(), t: $("t").value.trim() };
+    if (!validConfig(c)) { alert("Check the web app URL (it must end with /exec) and the token."); return; }
+    var link = location.origin + location.pathname + "#u=" + encodeURIComponent(c.u) + "&t=" + encodeURIComponent(c.t);
+    cfg = c;
+    try { localStorage.setItem(KEY, JSON.stringify(c)); } catch (e) {}
+    var box = $("share");
+    box.style.display = "block";
+    box.textContent = "Volunteer link (send only to your scanning team):\n\n" + link;
+    if (navigator.clipboard) navigator.clipboard.writeText(link).then(function () { alert("Volunteer link copied."); }, function () {});
+    setTimeout(function () { show("scanner"); }, 400);
+  };
+
+  $("resetBtn").onclick = function () {
+    if (!confirm("Change the scanner settings on this phone?")) return;
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    location.reload();
+  };
+
+  $("startBtn").onclick = startScanner;
+
+  readConfig();
+  show(validConfig(cfg) ? "scanner" : "setup");
+})();
+</script>
+</body>
+</html>
